@@ -1,0 +1,96 @@
+#!/bin/bash
+
+ resource_name=$1
+ start_job_name=$2
+ last_job_name=$3
+curl_dependency_pipeline_with () {
+  curl -Ss https://buildpacks.ci.cf-app.com/api/v1/teams/main/pipelines/dependency-builds/$1
+}
+
+curl_concourse () {
+	curl -Ss https://buildpacks.ci.cf-app.com/api/v1/$1
+}
+
+#get name of resource in the jobs
+resouce_name_in_pipeline=$(curl_dependency_pipeline_with jobs/$last_job_name | jq '.inputs[] | select ( .resource == "'$resource_name'") | .name' | jq -r)
+
+get_build_and_resource_merge() {
+	job_name=$1
+	#get the builds of last job
+	all_last_builds=$(curl_dependency_pipeline_with jobs/$job_name/builds | jq .)
+
+	#for all build_id in build get the source resource
+	new_build=()
+
+	for build in $(echo $all_last_builds | jq -c '.[]') 
+	do 
+		id=$(echo $build | jq '.id')
+		build_resource=$(curl_concourse builds/$id/resources | jq '.inputs[] | select(.name == "'$resouce_name_in_pipeline'") | .["resource_name"] = .name | del(.name) | . + {version_ref: .version.ref} | del(.version)' )
+		# version_ref=$(echo $build_resource | jq '.version.ref')
+		
+		new_build+=$(echo $build $build_resource | jq -s add )
+		
+	done
+
+	echo $new_build
+	str=$(echo $new_build | jq -cr .)
+}
+
+
+
+start_build_details=$(get_build_and_resource_merge $start_job_name | jq -s '. | group_by(.version_ref)  | sort_by(.[].start_time)')
+start_build=()
+
+for build in $(echo $start_build_details | jq -c '.[]') 
+do 
+  start_build+=$(echo $build | jq '.[-1]')
+done
+
+
+last_build_details=$(get_build_and_resource_merge $last_job_name | jq -s '. | group_by(.version_ref)  | sort_by(.[].start_time)')
+last_build=()
+
+for build in $(echo $last_build_details | jq -c '.[]') 
+do 
+  last_build+=$(echo $build | jq '.[0]')
+done
+
+combined_data=$(echo $(echo $last_build | jq -s .)$(echo $start_build | jq -s .) | jq -s add)
+grouped_data=$(echo $combined_data | jq '. | group_by(.version_ref) ')
+
+final_data=()
+
+for build in $(echo $grouped_data | jq -c '.[]') 
+do
+	if [ $(echo $build | jq '. | length') -eq 2 ]; then
+			echo -e "--------\n"
+			
+			
+			
+			
+			start_time=$( echo $build | jq -r '.[] | select(.job_name == "'$start_job_name'") | .start_time' )
+			
+
+			end_time=$( echo $build | jq -r '.[] | select(.job_name == "'$last_job_name'") | .end_time' )
+			
+
+			start_job_number=$( echo $build | jq  -r '.[] | select(.job_name == "'$start_job_name'") | .name' )
+			
+
+			end_job_number=$( echo $build | jq -r '.[] | select(.job_name == "'$last_job_name'") | .name' )
+			
+
+			version_ref_number=$( echo $build | jq -r '.[] | select(.job_name == "'$last_job_name'") | .version_ref' )
+
+			data=$(jq -n "{start_time:\"$start_time\", end_time:\"$end_time\", start_job_number:\"$start_job_number\", end_job_number:\"$end_job_number\", version_ref:\"$version_ref_number\", resource_name:\"$resource_name\"}" )
+
+			
+			echo $data
+			final_data+=$data
+		fi
+done
+
+
+echo $final_data
+
+# echo $build_details | jq -s -r '(.[0] | keys_unsorted) as $keys | ([$keys] + map([.[ $keys[] ]])) [] | @csv'

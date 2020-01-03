@@ -52,8 +52,9 @@ last_build=()
 
 for build in $(echo $last_build_details | jq -c '.[]') 
 do 
-  last_build+=$(echo $build | jq '.[0]')
+  last_build+=$(echo $build | jq '.[-1]')
 done
+
 
 combined_data=$(echo $(echo $last_build | jq -s .)$(echo $start_build | jq -s .) | jq -s add)
 grouped_data=$(echo $combined_data | jq '. | group_by(.version_ref) ')
@@ -63,34 +64,23 @@ final_data=()
 for build in $(echo $grouped_data | jq -c '.[]') 
 do
 	if [ $(echo $build | jq '. | length') -eq 2 ]; then
-			echo -e "--------\n"
 			
+			start_time=$( echo $build | jq -r '.[] | select(.job_name == "'$start_job_name'") | .start_time ' )
 			
+			end_time=$( echo $build | jq -r '.[] | select(.job_name == "'$last_job_name'") | .end_time ' )
 			
-			
-			start_time=$( echo $build | jq -r '.[] | select(.job_name == "'$start_job_name'") | .start_time' )
-			
-
-			end_time=$( echo $build | jq -r '.[] | select(.job_name == "'$last_job_name'") | .end_time' )
-			
-
 			start_job_number=$( echo $build | jq  -r '.[] | select(.job_name == "'$start_job_name'") | .name' )
 			
-
 			end_job_number=$( echo $build | jq -r '.[] | select(.job_name == "'$last_job_name'") | .name' )
 			
-
 			version_ref_number=$( echo $build | jq -r '.[] | select(.job_name == "'$last_job_name'") | .version_ref' )
 
-			data=$(jq -n "{start_time:\"$start_time\", end_time:\"$end_time\", start_job_number:\"$start_job_number\", end_job_number:\"$end_job_number\", version_ref:\"$version_ref_number\", resource_name:\"$resource_name\"}" )
+			difference=$(expr $end_time - $start_time)
 
-			
-			echo $data
+			data=$(jq -n "{start_time:\"$start_time\", end_time:\"$end_time\", time_diff:\"$difference\", start_job_number:\"$start_job_number\", end_job_number:\"$end_job_number\", version_ref:\"$version_ref_number\", resource_name:\"$resource_name\"}" )
+
 			final_data+=$data
 		fi
 done
 
-
-echo $final_data
-
-# echo $build_details | jq -s -r '(.[0] | keys_unsorted) as $keys | ([$keys] + map([.[ $keys[] ]])) [] | @csv'
+echo $final_data | jq -s -r '(.[0] | keys_unsorted) as $keys | ([$keys] + map([.[ $keys[] ]])) [] | @csv'

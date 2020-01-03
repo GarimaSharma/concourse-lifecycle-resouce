@@ -98,6 +98,9 @@ do
 		fi
 done
 
+csv_name=$(echo "csvs/${resource_name//.}.csv")
+
+echo $final_data | jq -s -r '(.[0] | keys_unsorted) as $keys | ([$keys] + map([.[ $keys[] ]])) [] | @csv' > $csv_name
 
 
-echo $final_data | jq -s -r '(.[0] | keys_unsorted) as $keys | ([$keys] + map([.[ $keys[] ]])) [] | @csv'
+

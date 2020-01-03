@@ -3,6 +3,7 @@
  resource_name=$1
  start_job_name=$2
  last_job_name=$3
+ repo_name=$4
 curl_dependency_pipeline_with () {
   curl -Ss https://buildpacks.ci.cf-app.com/api/v1/teams/main/pipelines/dependency-builds/$1
 }
@@ -36,7 +37,7 @@ get_build_and_resource_merge() {
 	str=$(echo $new_build | jq -cr .)
 }
 
-
+github_release_details=$(curl -sS https://api.github.com/repos/$repo_name/releases | jq 'map({ name, published_at, created_at }) | .[] | . + {published_at_epoch: .published_at | strptime("%Y-%m-%dT%H:%M:%SZ")|mktime  } | . + {created_at_epoch: .created_at | strptime("%Y-%m-%dT%H:%M:%SZ")|mktime  }')
 
 start_build_details=$(get_build_and_resource_merge $start_job_name | jq -s '. | group_by(.version_ref)  | sort_by(.[].start_time)')
 start_build=()
@@ -77,10 +78,26 @@ do
 
 			difference=$(expr $end_time - $start_time)
 
-			data=$(jq -n "{start_time:\"$start_time\", end_time:\"$end_time\", time_diff:\"$difference\", start_job_number:\"$start_job_number\", end_job_number:\"$end_job_number\", version_ref:\"$version_ref_number\", resource_name:\"$resource_name\"}" )
+			releases_after_end_time=$(echo $github_release_details | jq '. | select(.created_at_epoch >= '$end_time')' )
 
-			final_data+=$data
+			releases_sorted=$( echo $releases_after_end_time | jq -s '. | sort_by(.published_at_epoch)' )
+			
+			release_immediately_after_end_time=$( echo $releases_sorted | jq '.[0]' )
+			
+			time_of_publish=$( echo $release_immediately_after_end_time | jq '.published_at_epoch' )
+
+			difference_between_publish=$(expr $time_of_publish - $start_time )
+
+			difference_between_publish_in_days=$(expr $difference_between_publish / 86400 )
+
+			data=$(jq -n "{start_time:\"$start_time\", end_time:\"$end_time\", time_diff_in_days:\"$difference_between_publish_in_days\", time_diff:\"$difference_between_publish\", start_job_number:\"$start_job_number\", end_job_number:\"$end_job_number\", version_ref:\"$version_ref_number\", resource_name:\"$resource_name\"}" )
+
+			release_and_resource_data=$(echo $data $release_immediately_after_end_time | jq -s add )
+
+			final_data+=$release_and_resource_data
 		fi
 done
+
+
 
 echo $final_data | jq -s -r '(.[0] | keys_unsorted) as $keys | ([$keys] + map([.[ $keys[] ]])) [] | @csv'

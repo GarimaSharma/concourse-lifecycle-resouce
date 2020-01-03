@@ -4,6 +4,8 @@
  start_job_name=$2
  last_job_name=$3
  repo_name=$4
+
+ echo "called for $resource_name"
 curl_dependency_pipeline_with () {
   curl -Ss https://buildpacks.ci.cf-app.com/api/v1/teams/main/pipelines/dependency-builds/$1
 }
@@ -73,8 +75,14 @@ do
 			start_job_number=$( echo $build | jq  -r '.[] | select(.job_name == "'$start_job_name'") | .name' )
 			
 			end_job_number=$( echo $build | jq -r '.[] | select(.job_name == "'$last_job_name'") | .name' )
-			
+
 			version_ref_number=$( echo $build | jq -r '.[] | select(.job_name == "'$last_job_name'") | .version_ref' )
+
+			if [ "$version_ref_number" == null ]
+ 			then
+ 				continue
+ 			fi
+
 
 			difference=$(expr $end_time - $start_time)
 
@@ -99,6 +107,8 @@ do
 done
 
 csv_name=$(echo "csvs/${resource_name//.}.csv")
+
+rm -rf $csv_name
 
 echo $final_data | jq -s -r '(.[0] | keys_unsorted) as $keys | ([$keys] + map([.[ $keys[] ]])) [] | @csv' > $csv_name
 
